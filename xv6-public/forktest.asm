@@ -41,7 +41,7 @@ forktest(void)
 
   printf(1, "fork test\n");
   2e:	83 ec 08             	sub    $0x8,%esp
-  31:	68 08 04 00 00       	push   $0x408
+  31:	68 10 04 00 00       	push   $0x410
   36:	6a 01                	push   $0x1
   38:	e8 c3 ff ff ff       	call   0 <printf>
   3d:	83 c4 10             	add    $0x10,%esp
@@ -82,7 +82,7 @@ forktest(void)
     printf(1, "fork claimed to work N times!\n", N);
   7a:	83 ec 04             	sub    $0x4,%esp
   7d:	68 e8 03 00 00       	push   $0x3e8
-  82:	68 14 04 00 00       	push   $0x414
+  82:	68 1c 04 00 00       	push   $0x41c
   87:	6a 01                	push   $0x1
   89:	e8 72 ff ff ff       	call   0 <printf>
   8e:	83 c4 10             	add    $0x10,%esp
@@ -98,7 +98,7 @@ forktest(void)
   9f:	79 17                	jns    b8 <forktest+0x90>
       printf(1, "wait stopped early\n");
   a1:	83 ec 08             	sub    $0x8,%esp
-  a4:	68 33 04 00 00       	push   $0x433
+  a4:	68 3b 04 00 00       	push   $0x43b
   a9:	6a 01                	push   $0x1
   ab:	e8 50 ff ff ff       	call   0 <printf>
   b0:	83 c4 10             	add    $0x10,%esp
@@ -124,7 +124,7 @@ forktest(void)
   ca:	74 17                	je     e3 <forktest+0xbb>
     printf(1, "wait got too many\n");
   cc:	83 ec 08             	sub    $0x8,%esp
-  cf:	68 47 04 00 00       	push   $0x447
+  cf:	68 4f 04 00 00       	push   $0x44f
   d4:	6a 01                	push   $0x1
   d6:	e8 25 ff ff ff       	call   0 <printf>
   db:	83 c4 10             	add    $0x10,%esp
@@ -134,7 +134,7 @@ forktest(void)
   
   printf(1, "fork test OK\n");
   e3:	83 ec 08             	sub    $0x8,%esp
-  e6:	68 5a 04 00 00       	push   $0x45a
+  e6:	68 62 04 00 00       	push   $0x462
   eb:	6a 01                	push   $0x1
   ed:	e8 0e ff ff ff       	call   0 <printf>
   f2:	83 c4 10             	add    $0x10,%esp
@@ -692,3 +692,9 @@ SYSCALL(uptime)
  3ff:	b8 0e 00 00 00       	mov    $0xe,%eax
  404:	cd 40                	int    $0x40
  406:	c3                   	ret    
+
+00000407 <getpcount>:
+SYSCALL(getpcount)
+ 407:	b8 16 00 00 00       	mov    $0x16,%eax
+ 40c:	cd 40                	int    $0x40
+ 40e:	c3                   	ret    
