@@ -76,21 +76,34 @@ int odd_shell(){
     exit(EXIT_SUCCESS);*/
     
     // Allocate space to save input from command line
-    // Max 150 characters chosen
-    char* input_str = malloc(150 * sizeof(char));
+    char* input_str;
+    size_t max_length = 128;
+    size_t nchar_read;
     
     // Continue prompting until user types "exit"
     while(1){
     	printf("osh> ");
-    	fgets( input_str, 150, stdin );
-    	
+    	input_str = ( char* ) malloc( max_length * sizeof(char) );
+    	nchar_read = getline( &input_str, &max_length, stdin );
+    	    	   	
     	// Check if stdin was an exit message
     	if(strcmp( input_str, "exit\n" ) == 0){
     		return EXIT_SUCCESS;
     	}
     	
-    	// Do work with the input
-    	printf("The input was: %s", input_str);
+    	// Do work with the input 
+    	// *** HAVING TROUBLE FIGURING OUT STRTOK: It only takes in
+    	// the first word in the command line!   	
+		char* cmd = strtok (input_str, " ");
+		//execvp( cmd, &input_str );
+		printf("The cmd is: %s and the args are:\n", cmd);
+		char* next_arg = strtok(input_str, " \n");
+		while(next_arg != NULL)
+		{
+			printf("%s\n",next_arg);
+			next_arg = strtok(NULL, " ,.\n");
+		}
+		
     }
     
     // Return because error has occurred if this
