@@ -91,17 +91,21 @@ int odd_shell(){
     		return EXIT_SUCCESS;
     	}
     	
+    	// Check for getline error
+    	if( -1 == nchar_read ){
+    		return EXIT_FAILURE;
+    	}
+    	
     	// Do work with the input 
     	// *** HAVING TROUBLE FIGURING OUT STRTOK: It only takes in
     	// the first word in the command line!   	
-		char* cmd = strtok (input_str, " ");
+		char* cmd_args = strtok (input_str, " ");
 		//execvp( cmd, &input_str );
-		printf("The cmd is: %s and the args are:\n", cmd);
-		char* next_arg = strtok(input_str, " \n");
-		while(next_arg != NULL)
+		printf("The cmd is: %s and the args are:\n", cmd_args);
+		while(cmd_args != NULL)
 		{
-			printf("%s\n",next_arg);
-			next_arg = strtok(NULL, " ,.\n");
+			printf("%s\n", cmd_args);
+			cmd_args = strtok(NULL, " ");
 		}
 		
     }
