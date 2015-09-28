@@ -4,13 +4,11 @@
 #include "unistd.h"
 
 int odd_shell(){    
+    char *input_str, *cmd_args;
+    char **wordArray, **cmdArray;
     size_t max_str_length = 128; /* max length of command typed after osh prompt */
-    int max_num_args = 64; /* max number of words types after osh prompt */
-    char* input_str;
-    char* cmd_args;
     ssize_t nchar_read, length;
-    int wordArray_length, j, rc, return_value;
-    char** wordArray;
+    int wordArray_index, wordArray_length, j, rc, return_value, cmd_count = 1, max_num_args = 64; /* max number of words types after osh prompt */
 
     /* Continue prompting until user types "exit" */
     while(1){
@@ -32,6 +30,7 @@ int odd_shell(){
     	/* Get all words from command line into an array of words */
 		cmd_args = strtok (input_str, " ");
         wordArray = (char **) malloc(max_num_args * sizeof(char));
+        cmdArray  = (char **) malloc(max_num_args * sizeof(char));
         wordArray_length = 0;
 
 		while((cmd_args != NULL) && (wordArray_length < max_num_args))
@@ -41,6 +40,11 @@ int odd_shell(){
 			cmd_args = strtok(NULL, " ");
 			wordArray_length += 1;
 		}
+
+        if (wordArray_length == 0) /* handle blank line entered */
+            continue;
+
+        wordArray_index = wordArray_length - 1;
 
         /* Check if command was an exit message */
         if(strcmp( wordArray[0], "exit" ) == 0){
