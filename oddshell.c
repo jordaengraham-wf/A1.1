@@ -47,6 +47,8 @@ int odd_shell(){
 			i += 1;
 		}
 
+
+
     	rc = fork();
     	if ( -1 == rc ) {
     		printf("Error in forking.");
@@ -59,7 +61,10 @@ int odd_shell(){
                 printf("%s, ", wordArray[j]);
             printf("\n");
             if(execvp(wordArray[0], wordArray) == -1){
-                printf("execution of command failed\n");
+                printf("Execution failed: CMD: %s, Args: ", wordArray[0]);
+                for(j=1; j<i-1; j++)
+                    printf("%s, ", wordArray[j]);
+                printf("%s\n", wordArray[j]);
                 printf("Child %d exited\n", getpid());
                 exit(1);
     	    }
