@@ -8,8 +8,8 @@ int odd_shell(){
     int max_num_args = 64; /* max number of words types after osh prompt */
     char* input_str;
     char* cmd_args;
-    size_t nchar_read, length;
-    int i, j, rc, return_value;
+    ssize_t nchar_read, length;
+    int wordArray_length, j, rc, return_value;
     char** wordArray;
 
     /* Continue prompting until user types "exit" */
@@ -19,11 +19,6 @@ int odd_shell(){
     	/* Get command line input */
     	input_str = ( char* ) malloc( max_str_length * sizeof(char) );
     	nchar_read = getline( &input_str, &max_str_length, stdin );
-
-    	/* Check if command was an exit message */
-    	if(strcmp( input_str, "exit\n" ) == 0){
-    		return EXIT_SUCCESS;
-    	}
 
     	/* Check for getline() error */
     	if( -1 == nchar_read ){
@@ -37,32 +32,38 @@ int odd_shell(){
     	/* Get all words from command line into an array of words */
 		cmd_args = strtok (input_str, " ");
         wordArray = (char **) malloc(max_num_args * sizeof(char));
-		i = 0;
+        wordArray_length = 0;
 
-		while((cmd_args != NULL) && (i < max_num_args))
+		while((cmd_args != NULL) && (wordArray_length < max_num_args))
 		{
-			wordArray[i] = malloc(strlen(cmd_args) + 1);
-			strcpy(wordArray[i], cmd_args);
+			wordArray[wordArray_length] = malloc(strlen(cmd_args) + 1);
+			strcpy(wordArray[wordArray_length], cmd_args);
 			cmd_args = strtok(NULL, " ");
-			i += 1;
+			wordArray_length += 1;
 		}
 
+        /* Check if command was an exit message */
+        if(strcmp( wordArray[0], "exit" ) == 0){
+            return EXIT_SUCCESS;
+        }
 
+        /* Parse by pipes */
+        
 
     	rc = fork();
     	if ( -1 == rc ) {
-    		printf("Error in forking.");
+    		printf("Error in forking.\n");
     		return EXIT_FAILURE;
     	}
     	else if ( 0 == rc ) { /* Child process to execute */
     		printf("Im a child! (PID: %d)\n", getpid());
             printf("CMD: %s, Args: ", wordArray[0]);
-            for(j=1; j <i; j++ )
+            for(j=1; j < wordArray_length; j++ )
                 printf("%s, ", wordArray[j]);
             printf("\n");
             if(execvp(wordArray[0], wordArray) == -1){
                 printf("Execution failed: CMD: %s, Args: ", wordArray[0]);
-                for(j=1; j<i-1; j++)
+                for(j=1; j< wordArray_length -1; j++)
                     printf("%s, ", wordArray[j]);
                 printf("%s\n", wordArray[j]);
                 printf("Child %d exited\n", getpid());
@@ -76,9 +77,9 @@ int odd_shell(){
 
     	/* Free allocated memory */
     	free (input_str);
-    	i = i - 1; /* Decrement i to the highest index number */
-    	for( ; i > -1; i--){
-    		free (wordArray[i]);
+    	wordArray_length = wordArray_length - 1; /* Decrement i to the highest index number */
+    	for( ; wordArray_length > -1; wordArray_length--){
+    		free (wordArray[wordArray_length]);
     	}
     }
 
