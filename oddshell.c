@@ -3,20 +3,21 @@
 #include "string.h"
 #include "unistd.h"
 
-int execute_pipes(char **wordArray, int wordArray_length){
-    int j, childPID, return_value;
+void execute_pipes(char **wordArray, int wordArray_length){
+    int j, childPID;
 
     childPID = fork();
     if ( -1 == childPID ) {
         printf("Error in forking.\n");
-        return EXIT_FAILURE;
+        exit(1);
     }
     else if ( 0 == childPID ) { /* Child process to execute */
         printf("Im a child! (PID: %d)\n", getpid());
         printf("CMD: %s, Args: ", wordArray[0]);
-        for(j = 1; j < wordArray_length; j++ )
-            printf("%s, ", wordArray[j]);
-        printf("\n");
+        
+        for(j = 1; j < wordArray_length; j++ ){
+            printf("%s, \n", wordArray[j]);
+        }
 
         if(execvp(wordArray[0], wordArray) == -1){
             printf("Execution failed: CMD: %s, Args: ", wordArray[0]);
@@ -29,12 +30,14 @@ int execute_pipes(char **wordArray, int wordArray_length){
     }
     else { /* Parent process waits for child to complete */
         wait(NULL);
+        
         printf("I'm the parent! (PID: %d)\n", getpid());
     }
+    
 }
 
 int odd_shell(){    
-    char *input_str, *cmd_args;
+    char *input_str, *pipe_args, *cmd_args;
     char **wordArray, **pipesArray;
     size_t max_str_length = 128; /* max length of command typed after osh prompt */
     ssize_t nchar_read, length;
@@ -58,17 +61,18 @@ int odd_shell(){
     	input_str[length] = '\0';
 
         /* get pipes */
-        cmd_args = strtok (input_str, "|");
+        pipe_args = strtok (input_str, "|");
         pipesArray = (char **) malloc(max_num_args * sizeof(char));
         pipes_count = 0;
 
-        while((cmd_args != NULL) && (pipes_count < max_num_args))
+        while((pipe_args != NULL) && (pipes_count < max_num_args))
         {
-            pipesArray[pipes_count] = malloc(strlen(cmd_args) + 1);
-            strcpy(pipesArray[pipes_count], cmd_args);
-            cmd_args = strtok(NULL, "|");
+            pipesArray[pipes_count] = malloc(strlen(pipe_args) + 1);
+            strcpy(pipesArray[pipes_count], pipe_args);
+            pipe_args = strtok(NULL, "|");
             pipes_count += 1;
         }
+        pipesArray[pipes_count] = NULL; /* Make last entry in array null pointer */
 
         for (int k = pipes_count-1; k >= 0; k--) {
             cmd_args = strtok (pipesArray[k], " ");
@@ -82,6 +86,8 @@ int odd_shell(){
                 cmd_args = strtok(NULL, " ");
                 wordArray_length += 1;
             }
+            wordArray[wordArray_length] = NULL; /* Make last entry in array null pointer */
+
             if (wordArray_length == 0) /* handle blank line entered */
                 continue;
 
@@ -90,11 +96,6 @@ int odd_shell(){
                 return EXIT_SUCCESS;
             }
 
-//            int pipefd[2];
-//            pipe(pipefd);
-//            dup2(pipefd[0], 0)
-
-//            dup2(pipefd[1], 1)
             execute_pipes(wordArray, wordArray_length);
 
             for( wordArray_length = wordArray_length - 1; wordArray_length > -1; wordArray_length--){
