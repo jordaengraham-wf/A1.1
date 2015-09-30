@@ -3,8 +3,26 @@
 #include "string.h"
 #include "unistd.h"
 
-int execute_pipes(char **wordArray, int wordArray_length){
-    int j, childPID, return_value;
+#define READ_END 0
+#define WRITE_END 1
+
+struct LinkedList{
+    char **wordArray;
+    int length;
+    struct LinkedList *next;
+};
+
+void delete(struct LinkedList *cursor){
+    if (cursor->next == NULL)
+        free(cursor);
+    else {
+        delete(cursor->next);
+        free(cursor);
+    }
+}
+
+void execute_pipes(char **wordArray, int wordArray_length){
+    int j, childPID;
 
     childPID = fork();
     if ( -1 == childPID ) {
@@ -84,46 +102,59 @@ int odd_shell(){
             pipes_count += 1;
         }
 
-        for (int k = pipes_count-1; k >= 0; k--) {
-            cmd_args = strtok (pipesArray[k], " ");
-            wordArray = (char **) malloc(max_num_args * sizeof(char));
-            wordArray_length = 0;
+        if (pipes_count == 0) /* handle blank line entered */
+            continue;
 
-            while((cmd_args != NULL) && (wordArray_length < max_num_args))
-            {
+        for (cmd_index = pipes_count-1; cmd_index >= 0; cmd_index--) {
+
+            wordArray = (char **) malloc(max_num_args * 128 * sizeof(char));
+            wordArray_length = 0;
+            cmd_args = strtok (pipesArray[cmd_index], " ");
+
+            while((cmd_args != NULL) && (wordArray_length < max_num_args)) {
                 wordArray[wordArray_length] = malloc(strlen(cmd_args) + 1);
                 strcpy(wordArray[wordArray_length], cmd_args);
                 cmd_args = strtok(NULL, " ");
                 wordArray_length += 1;
             }
-            if (wordArray_length == 0) /* handle blank line entered */
-                continue;
 
             /* Check if command was an exit message */
             if(strcmp( wordArray[0], "exit" ) == 0){
                 return EXIT_SUCCESS;
             }
-
-//            int pipefd[2];
-//            pipe(pipefd);
-//            dup2(pipefd[0], 0)
-
-//            dup2(pipefd[1], 1)
-            execute_pipes(wordArray, wordArray_length);
-
-            for( wordArray_length = wordArray_length - 1; wordArray_length > -1; wordArray_length--){
-                free (wordArray[wordArray_length]);
+            cursor->wordArray = wordArray;
+            cursor->length = wordArray_length;
+            /* Creates a node at the end of the list */
+            if (cmd_index != 0) {
+                cursor->next = malloc(sizeof(struct LinkedList));
+                cursor = cursor->next;
             }
         }
 
+        cursor = root;
+        while (cursor != NULL){
+            printf("CMD: %s\n", cursor->wordArray[0]);
+            cursor=cursor->next;
+        }
+
+        /* execute_pipes(wordArray, wordArray_length); */
+        /* todo stdout here */
+
+
     	/* Free allocated memory */
     	free (input_str);
-        /* Decrement i to the highest index number */
 
-    	for( pipes_count = pipes_count - 1; pipes_count > -1; pipes_count--){
-    		free (pipesArray[pipes_count]);
-    	}
-    }
+        delete(root->next);
+
+        /* Decrement wordArray_length to the highest index number */
+        for( wordArray_length = wordArray_length - 1; wordArray_length > -1; wordArray_length--){
+            free (wordArray[wordArray_length]);
+        }
+        wordArray_length = 0;
+        for( pipes_count = pipes_count - 1; pipes_count > -1; pipes_count--){
+                free (pipesArray[pipes_count]);
+            }
+        }
 
     /* Return because error has occurred if this
        code has been reached. */
