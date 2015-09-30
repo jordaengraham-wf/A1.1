@@ -8,8 +8,8 @@ int execute_pipes(char **wordArray, int wordArray_length){
 
     childPID = fork();
     if ( -1 == childPID ) {
-        printf("Error in forking.\n");
-        return EXIT_FAILURE;
+        fprintf(stderr, "Error in forking.\n");
+        exit(1);
     }
     else if ( 0 == childPID ) { /* Child process to execute */
         printf("Im a child! (PID: %d)\n", getpid());
@@ -19,31 +19,45 @@ int execute_pipes(char **wordArray, int wordArray_length){
         printf("\n");
 
         if(execvp(wordArray[0], wordArray) == -1){
-            printf("Execution failed: CMD: %s, Args: ", wordArray[0]);
+            fprintf(stderr, "Execution failed: CMD: %s, Args: ", wordArray[0]);
             for(j = 1; j < wordArray_length -1; j++)
-                printf("%s, ", wordArray[j]);
-            printf("%s\n", wordArray[j]);
-            printf("Child %d exited\n", getpid());
+                fprintf(stderr, "%s, ", wordArray[j]);
+            fprintf(stderr, "%s\n", wordArray[j]);
+            fprintf(stderr, "Child %d exited\n", getpid());
             exit(1);
         }
     }
     else { /* Parent process waits for child to complete */
         wait(NULL);
-        printf("I'm the parent! (PID: %d)\n", getpid());
+        printf("I'm the Parent! (PID: %d)\n", getpid());
     }
 }
 
-int odd_shell(){    
-    char *input_str, *cmd_args;
-    char **wordArray, **pipesArray;
+
+int odd_shell(){
+    char *input_str, *cmd_args, **wordArray, **pipesArray;
     size_t max_str_length = 128; /* max length of command typed after osh prompt */
     ssize_t nchar_read, length;
-    int wordArray_length, pipes_count, max_num_args = 64; /* max number of words types after osh prompt */
+    int cmd_index, pipes_count, wordArray_length = 0, max_num_args = 64; /* max number of words types after osh prompt */
+    /* This will be the unchanging first node */
+    struct LinkedList *root;
+    /* This will point to each node as it traverses the list */
+    struct LinkedList *cursor;
+
 
     /* Continue prompting until user types "exit" */
     while(1){
-    	printf("osh> (PID: %d)", getpid());
 
+        /* Now root points to a node struct */
+        root = (struct LinkedList *) malloc( sizeof(struct LinkedList) );
+        /* The node root points to has its next pointer equal to a null pointer set */
+        root->length = 0;
+        root->next = NULL;
+        root->wordArray = NULL;
+        cursor = root;
+
+        printf("(PID: %d) osh> ", getpid());
+        fflush(stdout);
     	/* Get command line input */
     	input_str = ( char* ) malloc( max_str_length * sizeof(char) );
     	nchar_read = getline( &input_str, &max_str_length, stdin );
