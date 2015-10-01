@@ -1,7 +1,10 @@
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
-#include "unistd.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+
 
 #define READ_END 0
 #define WRITE_END 1
@@ -23,32 +26,47 @@ void delete(struct LinkedList *cursor){
 
 void execute_pipes(struct LinkedList *cmd_list, int num_pipes){
 
-	int new_pipe[2], old_pipe[2], status, i, j, childPID;
+	int status, i, j, cmd_num;
+	pid_t childPID;
+	const int num_commands = num_pipes + 1;
 	
+	/* Create enough pipes to go between each command */
+	int fd_arr[num_pipes][2];
 	for( i = 0; i < num_pipes; i++ ){
-		if( i < num_pipes - 1) { /* Check if still more pipes to execute */
-			pipe( new_pipe );
-		}
-		
-		childPID = fork();
-		
-    	if ( -1 == childPID ) {
+		if( pipe(fd_arr[num_pipes]) < 0 ){
+        	fprintf(stderr, "Error in creating pipes.\n");
+        	exit(1);	
+        }
+    }
+    
+    for( cmd_num = 0; cmd_num < num_commands; cmd_num++ ){
+    
+    	childPID = fork();
+    	
+    	if ( childPID < 0 ) {
         	fprintf(stderr, "Error in forking.\n");
         	exit(1);
     	}		
-		else if ( 0 == childPID ) { /* Child process to execute */
-			/* Check if this is not the first command */
-			if( i > 0 ){
-				close( old_pipe[WRITE_END] );
-				dup2( old_pipe[READ_END], 0 );
-				close( old_pipe[READ_END] );
+    	
+		if ( 0 == childPID ) { /* Child process to execute */
+			/* If there was a previous command, read from pipe: */
+			if( cmd_num > 0 ){
+			    close( fd_arr[cmd_num -1][WRITE_END] );
+				if( dup2(fd_arr[cmd_num - 1][READ_END], 0) < 0 ){
+					fprintf(stderr, "Error with dup2.\n");
+        			exit(1);
+        		}
+        		close( fd_arr[cmd_num -1][READ_END] );
 			}
 			
-			/* Check if there are further processes to execute */
-			if( i < num_pipes - 1){
-				close( new_pipe[READ_END] );
-				dup2( new_pipe[WRITE_END], 1 );
-				close( new_pipe[WRITE_END] );
+			/* If there is another command following, write to pipe ahead */
+			if( cmd_num < num_pipes ){
+				close( fd_arr[cmd_num][READ_END] );
+				if( dup2(fd_arr[cmd_num][WRITE_END], 1) < 0 ){
+					fprintf(stderr, "Error with dup2.\n");
+        			exit(1);
+        		}
+        		close( fd_arr[cmd_num][WRITE_END] );
 			}
 			
 			/* Execute current command */
@@ -59,81 +77,44 @@ void execute_pipes(struct LinkedList *cmd_list, int num_pipes){
             	fprintf(stderr, "%s\n", cmd_list->wordArray[j]);
             	fprintf(stderr, "Child %d exited\n", getpid());
             	exit(1);
-        	}        
-        }
-        else{ /* Parent process waits for child to complete */
-        	/* Check if there was a prev command */
-        	if( i > 0 ){
-        		close( old_pipe[READ_END] );
-        		close( old_pipe[WRITE_END] );
-        	}
-        	
-        	/* Check if there is another command to execute */
-        	if( i < num_pipes - 1 ){
-        		old_pipe[READ_END] = new_pipe[READ_END];
-        		old_pipe[WRITE_END] = new_pipe[WRITE_END];
-        	}
-        	
-        	/* Wait for end of last command execution */
-        	if( i == num_pipes - 1 ){
-        		waitpid( childPID, &status, 0 );
-        	}
-    	}
-		cmd_list = cmd_list->next;	
+        	}			
+		}
+		
+		else { /* Parent */
+			/* If there was a previous command, close fds: */
+			if( cmd_num > 0 ){
+				waitpid( childPID, &status, 0 );
+				close( fd_arr[cmd_num-1][0] );
+				close( fd_arr[cmd_num-1][1] );
+			}
+		}
+		cmd_list = cmd_list->next;
 	}
-			
-// 		while (cmd_list != NULL){
-//     	int j, childPID;
-// 
-//     	childPID = fork();
-//     	
-//     	if ( -1 == childPID ) {
-//         	fprintf(stderr, "Error in forking.\n");
-//         	exit(1);
-//     	}
-//     	
-//     	else if ( 0 == childPID ) { /* Child process to execute */
-//         	printf("Im a child! (PID: %d)\n", getpid());
-//         	printf("CMD: %s, Args: ", cmd_list->wordArray[0]);
-//         
-//         	for(j = 1; j < cmd_list->length; j++ ){
-//             	printf("%s, \n", cmd_list->wordArray[j]);
-//         	}
-// 
-//         	if(execvp(cmd_list->wordArray[0], cmd_list->wordArray) == -1){
-//             	fprintf(stderr, "Execution failed: CMD: %s, Args: ", cmd_list->wordArray[0]);
-//             	for(j = 1; j < cmd_list->length -1; j++)
-//                 	fprintf(stderr, "%s, ", cmd_list->wordArray[j]);
-//             	fprintf(stderr, "%s\n", cmd_list->wordArray[j]);
-//             	fprintf(stderr, "Child %d exited\n", getpid());
-//             	exit(1);
-//         	}
-//     	}
-//     	else { /* Parent process waits for child to complete */
-//         	wait(NULL);
-// 
-//         	printf("I'm the parent! (PID: %d)\n", getpid());
-//     	}
-//     	cmd_list=cmd_list->next;
-//     	curr_pipe_index += 1;
-//     }
-    
-}
+	waitpid( childPID, &status, 0 );
+	for( i = 0; i < num_pipes; i++ ){
+		close( fd_arr[i][0] );
+		close( fd_arr[i][1] );
+    }
+}	
 
-int odd_shell(){
-    char *input_str, *pipe_args, *cmd_args;
+
+int main(int argc, char* argv[]) {
+    char *input_str, *pipe_args, *cmd_args, *file_name, *direction_parse;
     char **wordArray, **pipesArray;
     size_t max_str_length = 128; /* max length of command typed after osh prompt */
     ssize_t nchar_read, length;
-    int cmd_index, pipes_count, wordArray_length = 0, max_num_args = 64; /* max number of words types after osh prompt */
+    int should_redirect, cmd_index, pipes_count, wordArray_length = 0, max_num_args = 64; /* max number of words types after osh prompt */
     /* This will be the unchanging first node */
     struct LinkedList *root;
     /* This will point to each node as it traverses the list */
     struct LinkedList *cursor;
+    int copy_stdout, out_file;
+    copy_stdout = dup(1); /* save copy of stdout to switch output back to on each loop */
 
 
     /* Continue prompting until user types "exit" */
     while(1){
+    	dup2( copy_stdout, 1 );
 
         /* Now root points to a node struct */
         root = (struct LinkedList *) malloc( sizeof(struct LinkedList) );
@@ -143,28 +124,47 @@ int odd_shell(){
         root->wordArray = NULL;
         cursor = root;
 
-        printf("(PID: %d) osh> ", getpid());
         fflush(stdout);
+        printf("(PID: %d) osh> ", getpid());
+        
     	/* Get command line input */
     	input_str = ( char* ) malloc( max_str_length * sizeof(char) );
     	nchar_read = getline( &input_str, &max_str_length, stdin );
 
     	/* Check for getline() error */
     	if( -1 == nchar_read ){
+    		close( copy_stdout );
     		return EXIT_FAILURE;
     	}
+    	
+    	/* Check for redirection */
+    	direction_parse = strtok (input_str, "<");
+    	file_name = direction_parse;
+    	should_redirect = 0;
+    	direction_parse = strtok (NULL, "<");
+    	if(direction_parse != NULL){
+    		input_str = direction_parse;
+    		should_redirect = 1;
+    	}
+    	if( 0 == should_redirect ){ /* If no redirection */
+    		input_str = file_name;
+    	}
+    	
+    	printf("filename: %s\n", file_name);
+    	printf("string: %s\n", input_str);
+    	printf("should redirect: %i\n", should_redirect);
+    	
 
     	/* Delete /n character at end of line */
     	length = (strlen(input_str) -1);
     	input_str[length] = '\0';
 
-        /* get pipes */
+        /* Break command line entry into pipe delineated chunks in pipesArray */
         pipe_args = strtok (input_str, "|");
         pipesArray = (char **) malloc(max_num_args * sizeof(char));
         pipes_count = 0;
 
-        while((pipe_args != NULL) && (pipes_count < max_num_args))
-        {
+        while((pipe_args != NULL) && (pipes_count < max_num_args)){
             pipesArray[pipes_count] = malloc(strlen(pipe_args) + 1);
             strcpy(pipesArray[pipes_count], pipe_args);
             pipe_args = strtok(NULL, "|");
@@ -175,8 +175,8 @@ int odd_shell(){
         if (pipes_count == 0) /* handle blank line entered */
             continue;
 
+		/* Put data from each pipe command into a linked list */
         for (cmd_index = pipes_count-1; cmd_index >= 0; cmd_index--) {
-
             wordArray = (char **) malloc(max_num_args * 128 * sizeof(char));
             wordArray_length = 0;
             cmd_args = strtok (pipesArray[cmd_index], " ");
@@ -190,6 +190,7 @@ int odd_shell(){
 
             /* Check if command was an exit message */
             if(strcmp( wordArray[0], "exit" ) == 0){
+            	close( copy_stdout );
                 return EXIT_SUCCESS;
             }
             cursor->wordArray = wordArray;
@@ -201,21 +202,27 @@ int odd_shell(){
             }
         }
 
+		/* Move pointer to current node in the command list to the root node */
         cursor = root;
-        /*while (cursor != NULL){
-            printf("CMD: %s\n", cursor->wordArray[0]);
-            execute_pipes(cursor->wordArray, cursor->length);
-            cursor=cursor->next;
-        }*/
-        execute_pipes(cursor, pipes_count-1); /* pipes_count-1 gives the number of "|"s in original command*/
-
-        /* todo stdout here */
-
+        
+        /* If redirection was indicated, set stdout to the file specified */
+        if( 1 == should_redirect ){
+        	out_file = open( file_name, O_WRONLY |O_TRUNC| O_CREAT, S_IRUSR | S_IRGRP | S_IROTH );
+        	dup2( out_file, 1 );
+        }
+        
+        /* Execute the commands saved in the linked list */
+        /* pipes_count-1 gives the number of "|"s in original command */
+        execute_pipes(cursor, pipes_count-1);
+        
+        if( 1 == should_redirect  ){
+        	close( out_file );
+        }
 
     	/* Free allocated memory */
-    	free (input_str);
+    	//free (input_str);
 
-        delete(root->next);
+        delete(root);
 
         /* Decrement wordArray_length to the highest index number */
         for( wordArray_length = wordArray_length - 1; wordArray_length > -1; wordArray_length--){
@@ -224,17 +231,12 @@ int odd_shell(){
         wordArray_length = 0;
         for( pipes_count = pipes_count - 1; pipes_count > -1; pipes_count--){
                 free (pipesArray[pipes_count]);
-            }
         }
+        fflush(stdout);
+    }
 
-    /* Return because error has occurred if this
-       code has been reached. */
+    /* Return because error has occurred if this code has been reached. */
+    close( copy_stdout );
     return EXIT_FAILURE;   
 }
-
-int main(int argc, char* argv[]) {
-    return odd_shell();
-}
-
-
 
