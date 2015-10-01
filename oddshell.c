@@ -95,15 +95,29 @@ void execute_pipes(struct LinkedList *cmd_list, int num_pipes){
 		close( fd_arr[i][0] );
 		close( fd_arr[i][1] );
     }
-}	
+}
+
+/* inserts into subject[] at position pos */
+char* append(char *subject, const char insert[], int pos) {
+    ssize_t len;
+    char *buf;
+    buf = malloc(100 * sizeof(char)); /* 100 so that it's big enough.*/
+
+    strncpy(buf, subject, pos); /* copy at most first pos characters */
+    len = strlen(buf);
+    strcpy(buf+len, insert); /* copy all of insert[] at the end */
+    len += strlen(insert);  /* increase the length by length of insert[] */
+    strcpy(buf+len, subject+pos); /* copy the rest */
+    return buf;
+}
 
 
 int main(int argc, char* argv[]) {
-    char *input_str, *pipe_args, *cmd_args, *file_name, *direction_parse;
+    char *input_str, *pipe_args, *cmd_args, *file_name, *direction_parse, *stdout_str, *c;
     char **wordArray, **pipesArray;
     size_t max_str_length = 128; /* max length of command typed after osh prompt */
     ssize_t nchar_read, length;
-    int should_redirect, cmd_index, pipes_count, wordArray_length = 0, max_num_args = 64; /* max number of words types after osh prompt */
+    int should_redirect, cmd_index, pipes_count, position, wordArray_length = 0, max_num_args = 64; /* max number of words types after osh prompt */
     /* This will be the unchanging first node */
     struct LinkedList *root;
     /* This will point to each node as it traverses the list */
@@ -150,11 +164,6 @@ int main(int argc, char* argv[]) {
     		input_str = file_name;
     	}
     	
-    	printf("filename: %s\n", file_name);
-    	printf("string: %s\n", input_str);
-    	printf("should redirect: %i\n", should_redirect);
-    	
-
     	/* Delete /n character at end of line */
     	length = (strlen(input_str) -1);
     	input_str[length] = '\0';
@@ -205,18 +214,54 @@ int main(int argc, char* argv[]) {
 		/* Move pointer to current node in the command list to the root node */
         cursor = root;
         
-        /* If redirection was indicated, set stdout to the file specified */
-        if( 1 == should_redirect ){
-        	out_file = open( file_name, O_WRONLY |O_TRUNC| O_CREAT, S_IRUSR | S_IRGRP | S_IROTH );
-        	dup2( out_file, 1 );
-        }
-        
+        /* Set stdout to the file specified */
+        out_file = open( "stdout" , O_WRONLY |O_TRUNC| O_CREAT, S_IRUSR | S_IRGRP | S_IROTH );
+        dup2( out_file, 1 );
+
         /* Execute the commands saved in the linked list */
         /* pipes_count-1 gives the number of "|"s in original command */
         execute_pipes(cursor, pipes_count-1);
         
+        close( out_file );
+
+        stdout_str = malloc(max_str_length * sizeof(char));
+        nchar_read = read(out_file, stdout_str, max_str_length);
+/*        stdout_str = "Hello world I'm cmpt"; */
+        printf("Before: %s\n", stdout_str);
+        for (position = 0; position < strlen(stdout_str); position++)
+            switch(stdout_str[position]) {
+                case 'c':
+                    c = "c";
+                    stdout_str = append(stdout_str, c, position);
+                    position++;
+                    break;
+                case 'm':
+                    c = "m";
+                    stdout_str = append(stdout_str, c, position);
+                    position++;
+                    break;
+                case 'p':
+                    c = "p";
+                    stdout_str = append(stdout_str, c, position);
+                    position++;
+                    break;
+                case 't':
+                    c = "t";
+                    stdout_str = append(stdout_str, c, position);
+                    position++;
+                    break;
+                default:
+                    break;
+            }
+        printf("After: %s\n", stdout_str);
+
         if( 1 == should_redirect  ){
-        	close( out_file );
+            out_file = open( file_name , O_WRONLY |O_TRUNC| O_CREAT, S_IRUSR | S_IRGRP | S_IROTH );
+            dup2( out_file, 1 );
+            printf("%s\n", stdout_str);
+            close( out_file );
+        } else {
+            printf("%s\n", stdout_str);
         }
 
     	/* Free allocated memory */
