@@ -9,13 +9,25 @@
 CC := gcc
 CCFLAGS := -Wall -Wextra -pthread -g
 
-all: clean Test_Sem
+all: clean Server Client
 
 clean:
 	@rm *.o* &> /dev/null || true
 	@rm *~ &> /dev/null || true
-	@rm Test* &> /dev/null || true
+	@rm Client &> /dev/null || true
+	@rm Server &> /dev/null || true
 
-Test_Sem: dogwashsynch.c dogwashsynch.h test_sem.c
-	$(CC) $(CCFLAGS) -o Test_Sem dogwashsynch.c test_sem.c
-	
+run_server: Server
+	@./Server
+
+run_client: Client
+	@./Client
+
+Server: server.c server.h
+	$(CC) $(CCFLAGS) -o Server server.c
+
+
+Client: client.c server.h
+	$(CC) $(CCFLAGS) -o Client client.c
+
+
