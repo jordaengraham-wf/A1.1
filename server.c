@@ -4,10 +4,7 @@
  * Jordaen Graham - jhg257
  * Jennifer Rospad - jlr247
  *
- * File: server.c 
- 
- telnet localhost 3490
- 
+ * File: server.c
  */
 
 #include <stdio.h>
@@ -24,13 +21,12 @@
 #include <signal.h>
 #include "server.h"
 
-#define PORT "3490"  // the port users will be connecting to
-
 #define BACKLOG 10     // how many pending connections queue will hold
-#define MAXDATASIZE 100 // max number of bytes we can get at once 
 
-void sigchld_handler(int s)
-{
+
+
+
+void sigchld_handler(int s) {
     // waitpid() might overwrite errno, so we save and restore it:
     int saved_errno = errno;
 
@@ -39,10 +35,8 @@ void sigchld_handler(int s)
     errno = saved_errno;
 }
 
-
 // get sockaddr, IPv4 or IPv6:
-void *get_in_addr(struct sockaddr *sa)
-{
+void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
     }
@@ -50,15 +44,81 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int main(void)
-{
-    int sockfd, new_fd;  // listen on sockfd, sends on new_fd
-    struct addrinfo hints, *servinfo, *p;
-    struct sockaddr_storage their_addr; // connector's address information
+int get_connections(int server_fd) {
+    int client_fd; //return
     socklen_t sin_size;
-    struct sigaction sa;
-    int yes=1;
     char s[INET6_ADDRSTRLEN];
+    struct sockaddr_storage their_addr; // connector's address information
+
+    sin_size = sizeof their_addr;
+    client_fd = accept(server_fd, (struct sockaddr *)&their_addr, &sin_size);
+    if (client_fd == -1) {
+        perror("accept");
+        return -1;
+    }
+
+    inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
+    printf("server: got connection from %s\n", s);
+
+    return client_fd;
+}
+
+char *recvMessage(int client_fd){
+    ssize_t numbytes = -1;
+    char *buf = malloc(MAXDATASIZE * sizeof(char));
+
+    if ((numbytes = recv(client_fd, buf, MAXDATASIZE-1, 0)) == -1) {
+        perror("recv");
+        exit(1);
+    }
+    buf[numbytes] = '\0';
+    return buf;
+}
+
+void sendMessage(int client_fd, char *message) {
+    if (send(client_fd, message, strlen(message), 0) == -1)
+        perror("send");
+}
+
+void do_shit(int server_fd) {
+
+    while(1) {  // main accept() loop
+        int client_fd;
+        char *buf;
+
+
+
+        client_fd = get_connections(server_fd);
+        if (client_fd == -1) {
+            continue;
+        }
+
+
+
+        while(1) {
+            buf = recvMessage(client_fd);
+            printf("Recieved String: %s\n", buf);
+            if (strcmp(buf, "quit") == 0)
+                break;
+        }
+
+
+        if (!fork()) { // this is the child process
+            sendMessage(client_fd, "Hello, world!");
+
+            close(server_fd); // child doesn't need the listener
+            close(client_fd);
+            exit(0);
+        }
+        close(client_fd);  // parent doesn't need this
+    }
+}
+
+int main(void) {
+    int server_fd = -1;  // listen for connection on server_fd, communicates on client_fd
+    struct addrinfo hints, *servinfo, *p;
+    struct sigaction sa;
+    int yes = 1;
     int rv;
 
     memset(&hints, 0, sizeof hints);
@@ -72,21 +132,21 @@ int main(void)
     }
 
     // loop through all the results and bind to the first we can
-    for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
-                p->ai_protocol)) == -1) {
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        if ((server_fd = socket(p->ai_family, p->ai_socktype,
+                                p->ai_protocol)) == -1) {
             perror("server: socket");
             continue;
         }
 
-        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
-                sizeof(int)) == -1) {
+        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &yes,
+                       sizeof(int)) == -1) {
             perror("setsockopt");
             exit(1);
         }
 
-        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
+        if (bind(server_fd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(server_fd);
             perror("server: bind");
             continue;
         }
@@ -96,12 +156,12 @@ int main(void)
 
     freeaddrinfo(servinfo); // all done with this structure
 
-    if (p == NULL)  {
+    if (p == NULL) {
         fprintf(stderr, "server: failed to bind\n");
         exit(1);
     }
 
-    if (listen(sockfd, BACKLOG) == -1) {
+    if (listen(server_fd, BACKLOG) == -1) {
         perror("listen");
         exit(1);
     }
@@ -116,61 +176,8 @@ int main(void)
 
     printf("server: waiting for connections...\n");
 
-    while(1) {  // main accept() loop
-        sin_size = sizeof their_addr;
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-        if (new_fd == -1) {
-            perror("accept");
-            continue;
-        }
-
-        inet_ntop(their_addr.ss_family,
-            get_in_addr((struct sockaddr *)&their_addr),
-            s, sizeof s);
-        printf("server: got connection from %s\n", s);
-        printf("Sockets: New: %d, Sock: %d\n", new_fd, sockfd);
-
-
-
-
-
-        
-
-        int numbytes = -1;
-        char buf[MAXDATASIZE];
-        if ((numbytes = recv(new_fd, buf, MAXDATASIZE-1, 0)) == -1) {
-            perror("recv");
-            exit(1);
-        }
-        buf[numbytes] = '\0';
-        printf("Recieved String: %s\n", buf);
-
-
-
-
-
-        if (!fork()) { // this is the child process
-            close(sockfd); // child doesn't need the listener
-            if (send(new_fd, "Hello, world!", 13, 0) == -1)
-                perror("send");
-            close(new_fd);
-            exit(0);
-        }
-        close(new_fd);  // parent doesn't need this
-    }
-
+    do_shit(server_fd);
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
