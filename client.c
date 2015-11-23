@@ -12,9 +12,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <netdb.h>
-#include "server.h"
 #include <arpa/inet.h>
 #include <pthread.h>
+#include "server.h"
 
 int loop, failure=0;
 
@@ -58,14 +58,14 @@ int run_client(int socket_fd){
     size_t end;
     pthread_t reading_thread;
 
-    // allocate space for the client_thread
+    /* allocate space for the client_thread */
     reading_thread = (pthread_t) malloc(sizeof(pthread_t));
     if (reading_thread == 0){
         perror("create thread");
         return -1;
     }
 
-    // Create and start thread
+    /* Create and start thread */
     printf("Create thread for socket: %d\n", socket_fd);
     if (pthread_create(&reading_thread, NULL, reading_func, &socket_fd) == -1){
         perror("start pthread");
@@ -89,7 +89,7 @@ int run_client(int socket_fd){
     loop = 0;
     fflush(stdout);
 
-    // Join thread
+    /* Join thread */
     if (pthread_join(reading_thread, NULL) == -1){
         perror("join pthread");
         return -1;
@@ -98,7 +98,7 @@ int run_client(int socket_fd){
     return 0;
 }
 
-// get sockaddr, IPv4 or IPv6:
+/* get sockaddr, IPv4 or IPv6: */
 void *get_in_addr(struct sockaddr *sa)  {
     if (sa->sa_family == AF_INET)
         return &(((struct sockaddr_in*)sa)->sin_addr);
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // loop through all the results and connect to the first we can
+    /* loop through all the results and connect to the first we can */
     for (p = servinfo; p != NULL; p = p->ai_next) {
         if ((socket_fd = socket(p->ai_family, p->ai_socktype,
                                 p->ai_protocol)) == -1) {
@@ -151,7 +151,7 @@ int main(int argc, char *argv[]) {
               s, sizeof s);
     printf("client: connecting to %s\n", s);
 
-    freeaddrinfo(servinfo); // all done with this structure
+    freeaddrinfo(servinfo); /* all done with this structure */
 
     return run_client(socket_fd);
 }

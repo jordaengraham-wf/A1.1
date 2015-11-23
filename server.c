@@ -1,3 +1,4 @@
+
 /* CMPT 332 - Fall 2015
  * Assignment 4, Question 1
  *
@@ -19,11 +20,11 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <signal.h>
-#include "server.h"
 #include <ifaddrs.h>
+#include "server.h"
 
 
-#define BACKLOG 10     // how many pending connections queue will hold
+#define BACKLOG 10     /* how many pending connections queue will hold */
 
 
 struct clients{
@@ -36,7 +37,7 @@ pthread_mutex_t list_mutex;
 
 
 void sigchld_handler(int s) {
-    // waitpid() might overwrite errno, so we save and restore it:
+    /* waitpid() might overwrite errno, so we save and restore it: */
     int saved_errno = errno;
 
     while(waitpid(-1, NULL, WNOHANG) > 0);
@@ -44,7 +45,7 @@ void sigchld_handler(int s) {
     errno = saved_errno;
 }
 
-// get sockaddr, IPv4 or IPv6:
+/* get sockaddr, IPv4 or IPv6: */
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
         return &(((struct sockaddr_in*)sa)->sin_addr);
@@ -54,10 +55,10 @@ void *get_in_addr(struct sockaddr *sa) {
 }
 
 struct clients *get_connections(int server_fd) {
-    int client_fd; //return
+    int client_fd; /*return */
     socklen_t sin_size;
     char s[INET6_ADDRSTRLEN];
-    struct sockaddr_storage their_addr; // connector's address information
+    struct sockaddr_storage their_addr; /* connector's address information */
     struct clients *client;
 
     sin_size = sizeof their_addr;
@@ -104,11 +105,14 @@ int sendMessage(int client_fd, char *message) {
 }
 
 int *sendToAllClients(struct clients *client, char *buf) {
-    pthread_mutex_lock(&list_mutex);
     struct clients *cursor;
-    int *bad_list = malloc(list_size*sizeof(int)), bad_size = 0;
+    int *bad_list, bad_size;
+    char *message;
+    pthread_mutex_lock(&list_mutex);
 
-    char *message = malloc(MAXDATASIZE*sizeof(char));
+    bad_size = 0;
+    bad_list = malloc(list_size*sizeof(int));
+    message = malloc(MAXDATASIZE*sizeof(char));
     snprintf(message, MAXDATASIZE, "%s, %d: %s", client->address, atoi(PORT), buf);
     cursor = clients_list;
     for(; cursor != NULL; cursor = cursor->next) {
@@ -126,9 +130,10 @@ int *sendToAllClients(struct clients *client, char *buf) {
 }
 
 void addThreadToList(int client_fd, char *address) {
+    struct clients *client;
     pthread_mutex_lock(&list_mutex);
 
-    struct clients *client = (struct clients *)malloc(sizeof(struct clients));
+    client = (struct clients *)malloc(sizeof(struct clients));
     client->fd = client_fd;
     client->address = address;
     if (clients_list == NULL)
@@ -146,8 +151,10 @@ void addThreadToList(int client_fd, char *address) {
 }
 
 void removeThreadFromList(int client_fd) {
+    struct clients *cursor, *prev;
     pthread_mutex_lock(&list_mutex);
-    struct clients *cursor, *prev=NULL;
+    
+    prev = NULL;
     cursor = clients_list;
     while(cursor != NULL)
     {
@@ -196,7 +203,7 @@ void *entry_func(void *args) {
                     break;
                 fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
                 removeThreadFromList(bad_list[i]);
-            }
+        }
     }
     sendMessage(client_fd, "Goodbye Server!!");
 
@@ -206,27 +213,24 @@ void *entry_func(void *args) {
 }
 
 int run_server(int server_fd) {
-    // Pointer to the location of all client thread
+    /* Pointer to the location of all client thread */
     pthread_t client_thread;
-    int fd_set[2];
     struct clients *client;
-    fd_set[0] = server_fd;
 
-    // allocate space for the client_thread
+    /* allocate space for the client_thread */
     client_thread = (pthread_t) malloc(sizeof(pthread_t));
     if (client_thread == 0){
         perror("create thread");
         return -1;
     }
 
-    while(1) {  // main accept() loop
+    while(1) {  /* main accept() loop */
         client = get_connections(server_fd);
         if (client->fd == -1) {
             continue;
         }
-        fd_set[1] = client->fd;
 
-        // Create and start thread
+	/* Create and start thread */
         if (pthread_create(&client_thread, NULL, entry_func, client) == -1){
             perror("start pthread");
             return -1;
@@ -236,32 +240,30 @@ int run_server(int server_fd) {
 }
 
 int main(void) {
-    int rv, yes = 1, server_fd = -1;  // listen for connection on server_fd, communicates on client_fd
+    int rv, yes = 1, server_fd = -1;  /* listen for connection on server_fd, communicates on client_fd */
     struct addrinfo hints, *servinfo, *p;
     struct sigaction sa;
     struct ifaddrs *addrs, *tmp;
     struct sockaddr_in *pAddr = NULL;
-
+    
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE; // use my IP
+    hints.ai_flags = AI_PASSIVE; /* use my IP */
 
     if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }
 
-    // loop through all the results and bind to the first we can
+    /* loop through all the results and bind to the first we can */
     for (p = servinfo; p != NULL; p = p->ai_next) {
-        if ((server_fd = socket(p->ai_family, p->ai_socktype,
-                                p->ai_protocol)) == -1) {
+        if ((server_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("server: socket");
             continue;
         }
 
-        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &yes,
-                       sizeof(int)) == -1) {
+        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
             perror("setsockopt");
             exit(1);
         }
@@ -275,7 +277,7 @@ int main(void) {
         break;
     }
 
-    freeaddrinfo(servinfo); // all done with this structure
+    freeaddrinfo(servinfo); /* all done with this structure */
 
     if (p == NULL) {
         perror("server: failed to bind");
@@ -287,7 +289,7 @@ int main(void) {
         exit(1);
     }
 
-    sa.sa_handler = sigchld_handler; // reap all dead processes
+    sa.sa_handler = sigchld_handler; /* reap all dead processes */
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     if (sigaction(SIGCHLD, &sa, NULL) == -1) {
@@ -297,18 +299,23 @@ int main(void) {
 
     getifaddrs(&addrs);
     tmp = addrs;
-
+    printf("Addresses: [\n");
     while (tmp)
     {
-        if (tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_INET && strcmp(tmp->ifa_name, "en0") == 0)
+        if (tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_INET)
         {
             pAddr = (struct sockaddr_in *)tmp->ifa_addr;
-            break;
+            printf("\t%s, %s\n", tmp->ifa_name, inet_ntoa(pAddr->sin_addr));
         }
         tmp = tmp->ifa_next;
     }
     freeifaddrs(addrs);
-
+    printf("]\n");
+    
+    /* Server prints out all available addresses, you can access the server with: 
+    ./Client ip_address
+    */
+    
     if (0 != pthread_mutex_init(&list_mutex, NULL)) {
         perror("init list_mutex");
         exit(1);
@@ -316,7 +323,7 @@ int main(void) {
 
     clients_list = NULL;
 
-    printf("Address: %s, Port: %s\nserver: waiting for connections...\n", inet_ntoa(pAddr->sin_addr), PORT);
+    printf("Port: %s\nserver: waiting for connections...\n", PORT);
     fflush(stdout);
     run_server(server_fd);
 
@@ -327,3 +334,4 @@ int main(void) {
 
     return 0;
 }
+
