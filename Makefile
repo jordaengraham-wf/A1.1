@@ -7,7 +7,7 @@
 # File: Makefile
 
 CC := gcc
-CCFLAGS := -Wall -Wextra -pthread -g
+CCFLAGS := -Wall -Wextra -pedantic -pthread -g
 
 all: clean Server Client
 

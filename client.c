@@ -14,12 +14,9 @@
 #include <netdb.h>
 #include "server.h"
 #include <arpa/inet.h>
+#include <pthread.h>
 
-//#include <errno.h>
-//#include <sys/types.h>
-//#include <netinet/in.h>
-//#include <sys/socket.h>
-
+int loop, failure=0;
 
 char *recvMessage(int socket_fd){
     char *buf = malloc(MAXDATASIZE * sizeof(char));
@@ -27,60 +24,97 @@ char *recvMessage(int socket_fd){
     if ((numbytes = recv(socket_fd, buf, MAXDATASIZE-1, 0)) == -1) {
         perror("recv");
         exit(1);
-    }
-
-    buf[numbytes] = '\0';
+    } else if (numbytes == 0)
+        buf = "abort";
+    else
+        buf[numbytes] = '\0';
     return buf;
 }
 
 void sendMessage(int socket_fd, char *message) {
-    if(send(socket_fd, message, strlen(message), 0) == -1) {
-        fprintf(stderr, "error sending the string: %s\n", message);
-    }
+    if(send(socket_fd, message, strlen(message), 0) == -1)
+        perror("sending message");
 }
 
-void do_other_shit(int socket_fd){
-    char *buf = malloc(MAXDATASIZE * sizeof(char));
-    size_t end;
+void *reading_func(void *args){
+    int *ptr_socket_fd = (int*) args;
+    int socket_fd =  *ptr_socket_fd;
+    char *buf;
 
-    while(1){
-        printf("Enter a string: ");
-        buf = fgets(buf, MAXDATASIZE-1, stdin);
+    while(loop){
+        buf = recvMessage(socket_fd);
+        if (strcmp(buf, "abort") == 0) {
+            failure = 1;
+            perror("Server went away");
+            break;
+        }
+        printf("%s\n", buf);
+    }
+    pthread_exit(NULL);
+}
+
+int run_client(int socket_fd){
+    char *buf = malloc(MAXDATASIZE * sizeof(char)), *message = malloc(MAXDATASIZE * sizeof(char));
+    size_t end;
+    pthread_t reading_thread;
+
+    // allocate space for the client_thread
+    reading_thread = (pthread_t) malloc(sizeof(pthread_t));
+    if (reading_thread == 0){
+        perror("create thread");
+        return -1;
+    }
+
+    // Create and start thread
+    printf("Create thread for socket: %d\n", socket_fd);
+    if (pthread_create(&reading_thread, NULL, reading_func, &socket_fd) == -1){
+        perror("start pthread");
+        return -1;
+    }
+
+    loop = 1;
+    while(!failure){
+
+
+        buf = fgets(buf, MAXDATASIZE-2, stdin);
         end = strlen(buf) - 1;
         if (buf[end] == '\n')
             buf[end] = '\0';
-        sendMessage(socket_fd, buf);
+        snprintf(message, MAXDATASIZE, "/%s", buf);
+        sendMessage(socket_fd, message);
             if(strcmp(buf, "quit") == 0)
                 break;
     }
 
+    loop = 0;
+    fflush(stdout);
 
-    buf = recvMessage(socket_fd);
-    printf("Client: received '%s'\n", buf);
-
+    // Join thread
+    if (pthread_join(reading_thread, NULL) == -1){
+        perror("join pthread");
+        return -1;
+    }
     close(socket_fd);
+    return 0;
 }
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa)  {
-    if (sa->sa_family == AF_INET) {
+    if (sa->sa_family == AF_INET)
         return &(((struct sockaddr_in*)sa)->sin_addr);
-    }
 
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
 int main(int argc, char *argv[]) {
-    int socket_fd, rv;
+    int socket_fd = -1, rv;
     char s[INET6_ADDRSTRLEN], *host;
     struct addrinfo hints, *servinfo, *p;
 
-    /* todo */
-    if (argc != 2) {
+    if (argc != 2)
         host = "localhost";
-    } else {
+    else
         host = argv[1];
-    }
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -109,8 +143,8 @@ int main(int argc, char *argv[]) {
     }
 
     if (p == NULL) {
-        fprintf(stderr, "client: failed to connect\n");
-        return 2;
+        perror("client: failed to connect");
+        exit(2);
     }
 
     inet_ntop(p->ai_family, get_in_addr((struct sockaddr *) p->ai_addr),
@@ -119,12 +153,6 @@ int main(int argc, char *argv[]) {
 
     freeaddrinfo(servinfo); // all done with this structure
 
-
-
-
-
-
-    do_other_shit(socket_fd);
-    return 0;
+    return run_client(socket_fd);
 }
 

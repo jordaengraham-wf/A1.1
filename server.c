@@ -17,13 +17,22 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-#include <sys/wait.h>
+#include <pthread.h>
 #include <signal.h>
 #include "server.h"
+#include <ifaddrs.h>
+
 
 #define BACKLOG 10     // how many pending connections queue will hold
 
 
+struct clients{
+    int fd;
+    char *address;
+    struct clients *next;
+}*clients_list;
+int list_size=0;
+pthread_mutex_t list_mutex;
 
 
 void sigchld_handler(int s) {
@@ -44,82 +53,194 @@ void *get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-int get_connections(int server_fd) {
+struct clients *get_connections(int server_fd) {
     int client_fd; //return
     socklen_t sin_size;
     char s[INET6_ADDRSTRLEN];
     struct sockaddr_storage their_addr; // connector's address information
+    struct clients *client;
 
     sin_size = sizeof their_addr;
     client_fd = accept(server_fd, (struct sockaddr *)&their_addr, &sin_size);
     if (client_fd == -1) {
         perror("accept");
-        return -1;
+        return NULL;
     }
 
-    inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
-    printf("server: got connection from %s\n", s);
+    inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), (char *) s, INET6_ADDRSTRLEN);
 
-    return client_fd;
+    printf("server: got connection from %s\n", s);
+    fflush(stdout);
+    client = malloc(sizeof(struct clients));
+    client->fd = client_fd;
+    client->address = malloc(INET6_ADDRSTRLEN* sizeof(char));
+    snprintf(client->address, INET6_ADDRSTRLEN, "%s", s);
+    client->next = NULL;
+    return client;
 }
 
 char *recvMessage(int client_fd){
-    ssize_t numbytes = -1;
+    ssize_t numbytes;
     char *buf = malloc(MAXDATASIZE * sizeof(char));
 
     if ((numbytes = recv(client_fd, buf, MAXDATASIZE-1, 0)) == -1) {
         perror("recv");
         exit(1);
     }
-    buf[numbytes] = '\0';
+    else if (numbytes == 0){
+        buf = "abort";
+    }
+    else
+        buf[numbytes] = '\0';
     return buf;
 }
 
-void sendMessage(int client_fd, char *message) {
-    if (send(client_fd, message, strlen(message), 0) == -1)
+int sendMessage(int client_fd, char *message) {
+    if (send(client_fd, message, strlen(message), 0) == -1) {
         perror("send");
+        return -1;
+    }
+    return 0;
 }
 
-void do_shit(int server_fd) {
+int *sendToAllClients(struct clients *client, char *buf) {
+    pthread_mutex_lock(&list_mutex);
+    struct clients *cursor;
+    int *bad_list = malloc(list_size*sizeof(int)), bad_size = 0;
+
+    char *message = malloc(MAXDATASIZE*sizeof(char));
+    snprintf(message, MAXDATASIZE, "%s, %d: %s", client->address, atoi(PORT), buf);
+    cursor = clients_list;
+    for(; cursor != NULL; cursor = cursor->next) {
+        if (sendMessage(cursor->fd, message) == -1) {
+            bad_list[bad_size] = client->fd;
+            bad_size++;
+        }
+    }
+    if (bad_size > 0) {
+        bad_list[bad_size] = -1;
+    } else
+        bad_list = NULL;
+    pthread_mutex_unlock(&list_mutex);
+    return bad_list;
+}
+
+void addThreadToList(int client_fd, char *address) {
+    pthread_mutex_lock(&list_mutex);
+
+    struct clients *client = (struct clients *)malloc(sizeof(struct clients));
+    client->fd = client_fd;
+    client->address = address;
+    if (clients_list == NULL)
+    {
+        clients_list = client;
+        clients_list->next=NULL;
+    }
+    else
+    {
+        client->next = clients_list;
+        clients_list = client;
+    }
+
+    pthread_mutex_unlock(&list_mutex);
+}
+
+void removeThreadFromList(int client_fd) {
+    pthread_mutex_lock(&list_mutex);
+    struct clients *cursor, *prev=NULL;
+    cursor = clients_list;
+    while(cursor != NULL)
+    {
+        if(cursor->fd == client_fd)
+        {
+            if(cursor == clients_list)
+            {
+                clients_list = cursor->next;
+                free(cursor);
+            }
+            else
+            {
+                prev->next = cursor->next;
+                free(cursor);
+            }
+            break;
+        }
+        else
+        {
+            prev = cursor;
+            cursor = cursor->next;
+        }
+    }
+    pthread_mutex_unlock(&list_mutex);
+}
+
+void *entry_func(void *args) {
+    int i, client_fd, *bad_list=NULL;
+    char *buf=NULL;
+
+    struct clients *client = (struct clients*) args;
+    client_fd = client->fd;
+
+    while(1) {
+        buf = recvMessage(client_fd);
+        if (strcmp(buf, "/quit") == 0)
+            break;
+        else if (strcmp(buf, "abort") == 0){
+            removeThreadFromList(client_fd);
+            pthread_exit(NULL);
+        }
+        bad_list = sendToAllClients(client, ++buf);
+        if(bad_list != NULL)
+            for(i=0; i < list_size; i++) {
+                if(bad_list[i] == -1)
+                    break;
+                fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
+                removeThreadFromList(bad_list[i]);
+            }
+    }
+    sendMessage(client_fd, "Goodbye Server!!");
+
+    removeThreadFromList(client_fd);
+    close(client_fd);
+    pthread_exit(NULL);
+}
+
+int run_server(int server_fd) {
+    // Pointer to the location of all client thread
+    pthread_t client_thread;
+    int fd_set[2];
+    struct clients *client;
+    fd_set[0] = server_fd;
+
+    // allocate space for the client_thread
+    client_thread = (pthread_t) malloc(sizeof(pthread_t));
+    if (client_thread == 0){
+        perror("create thread");
+        return -1;
+    }
 
     while(1) {  // main accept() loop
-        int client_fd;
-        char *buf;
-
-
-
-        client_fd = get_connections(server_fd);
-        if (client_fd == -1) {
+        client = get_connections(server_fd);
+        if (client->fd == -1) {
             continue;
         }
+        fd_set[1] = client->fd;
 
-
-
-        while(1) {
-            buf = recvMessage(client_fd);
-            printf("Recieved String: %s\n", buf);
-            if (strcmp(buf, "quit") == 0)
-                break;
+        // Create and start thread
+        if (pthread_create(&client_thread, NULL, entry_func, client) == -1){
+            perror("start pthread");
+            return -1;
         }
-
-
-        if (!fork()) { // this is the child process
-            sendMessage(client_fd, "Hello, world!");
-
-            close(server_fd); // child doesn't need the listener
-            close(client_fd);
-            exit(0);
-        }
-        close(client_fd);  // parent doesn't need this
+        addThreadToList(client->fd, client->address);
     }
 }
 
 int main(void) {
-    int server_fd = -1;  // listen for connection on server_fd, communicates on client_fd
+    int rv, yes = 1, server_fd = -1;  // listen for connection on server_fd, communicates on client_fd
     struct addrinfo hints, *servinfo, *p;
     struct sigaction sa;
-    int yes = 1;
-    int rv;
+    struct ifaddrs *addrs, *tmp;
+    struct sockaddr_in *pAddr = NULL;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -157,7 +278,7 @@ int main(void) {
     freeaddrinfo(servinfo); // all done with this structure
 
     if (p == NULL) {
-        fprintf(stderr, "server: failed to bind\n");
+        perror("server: failed to bind");
         exit(1);
     }
 
@@ -174,10 +295,35 @@ int main(void) {
         exit(1);
     }
 
-    printf("server: waiting for connections...\n");
+    getifaddrs(&addrs);
+    tmp = addrs;
 
-    do_shit(server_fd);
+    while (tmp)
+    {
+        if (tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_INET && strcmp(tmp->ifa_name, "en0") == 0)
+        {
+            pAddr = (struct sockaddr_in *)tmp->ifa_addr;
+            break;
+        }
+        tmp = tmp->ifa_next;
+    }
+    freeifaddrs(addrs);
+
+    if (0 != pthread_mutex_init(&list_mutex, NULL)) {
+        perror("init list_mutex");
+        exit(1);
+    }
+
+    clients_list = NULL;
+
+    printf("Address: %s, Port: %s\nserver: waiting for connections...\n", inet_ntoa(pAddr->sin_addr), PORT);
+    fflush(stdout);
+    run_server(server_fd);
+
+    if (pthread_mutex_destroy(&list_mutex)) {
+        perror("destroy list_mutex");
+        exit(1);
+    }
+
     return 0;
 }
-
-
