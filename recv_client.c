@@ -4,7 +4,7 @@
  * Jordaen Graham - jhg257
  * Jennifer Rospad - jlr247
  *
- * File: client.c 
+ * File: recv_client.c 
  */
 
 #include <stdio.h>
@@ -15,8 +15,6 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include "server.h"
-
-int loop, failure=0;
 
 char *recvMessage(int socket_fd){
     char *buf = malloc(MAXDATASIZE * sizeof(char));
@@ -31,70 +29,20 @@ char *recvMessage(int socket_fd){
     return buf;
 }
 
-void sendMessage(int socket_fd, char *message) {
-    if(send(socket_fd, message, strlen(message), 0) == -1)
-        perror("sending message");
-}
 
-void *reading_func(void *args){
-    int *ptr_socket_fd = (int*) args;
-    int socket_fd =  *ptr_socket_fd;
+int run_client(int socket_fd){
     char *buf;
 
-    while(loop){
+    while(1){
         buf = recvMessage(socket_fd);
         if (strcmp(buf, "abort") == 0) {
-            failure = 1;
             perror("Server went away");
             break;
         }
         printf("%s\n", buf);
     }
-    pthread_exit(NULL);
-}
 
-int run_client(int socket_fd){
-    char *buf = malloc(MAXDATASIZE * sizeof(char)), *message = malloc(MAXDATASIZE * sizeof(char));
-    size_t end;
-    pthread_t reading_thread;
-
-    /* allocate space for the client_thread */
-    reading_thread = (pthread_t) malloc(sizeof(pthread_t));
-    if (reading_thread == 0){
-        perror("create thread");
-        return -1;
-    }
-
-    /* Create and start thread */
-    printf("Create thread for socket: %d\n", socket_fd);
-    if (pthread_create(&reading_thread, NULL, reading_func, &socket_fd) == -1){
-        perror("start pthread");
-        return -1;
-    }
-
-    loop = 1;
-    while(!failure){
-
-
-        buf = fgets(buf, MAXDATASIZE-2, stdin);
-        end = strlen(buf) - 1;
-        if (buf[end] == '\n')
-            buf[end] = '\0';
-        snprintf(message, MAXDATASIZE, "/%s", buf);
-        sendMessage(socket_fd, message);
-            if(strcmp(buf, "quit") == 0)
-                break;
-    }
-
-    loop = 0;
-    fflush(stdout);
-
-    /* Join thread */
-    if (pthread_join(reading_thread, NULL) == -1){
-        perror("join pthread");
-        return -1;
-    }
-    close(socket_fd);
+  close(socket_fd);
     return 0;
 }
 
@@ -120,7 +68,7 @@ int main(int argc, char *argv[]) {
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
-    if ((rv = getaddrinfo(host, PORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(host, RECEIVEPORT, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
     }

@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -31,9 +32,17 @@ struct clients{
     int fd;
     char *address;
     struct clients *next;
-}*clients_list;
-int list_size=0;
-pthread_mutex_t list_mutex;
+}*recv_list;
+
+struct message_queue{
+    char* message;
+    struct message_queue *next;
+}*MessageQueue;
+
+
+int recv_size=0, queue_size=0;
+pthread_mutex_t recv_mutex, queue_mutex;
+pthread_cond_t cond;
 
 
 void sigchld_handler(int s) {
@@ -104,20 +113,17 @@ int sendMessage(int client_fd, char *message) {
     return 0;
 }
 
-int *sendToAllClients(struct clients *client, char *buf) {
+int *sendToAllClients(char *buf) {
     struct clients *cursor;
     int *bad_list, bad_size;
-    char *message;
-    pthread_mutex_lock(&list_mutex);
+    pthread_mutex_lock(&recv_mutex);
 
     bad_size = 0;
-    bad_list = malloc(list_size*sizeof(int));
-    message = malloc(MAXDATASIZE*sizeof(char));
-    snprintf(message, MAXDATASIZE, "%s, %d: %s", client->address, atoi(PORT), buf);
-    cursor = clients_list;
+    bad_list = malloc(recv_size*sizeof(int));
+    cursor = recv_list;
     for(; cursor != NULL; cursor = cursor->next) {
-        if (sendMessage(cursor->fd, message) == -1) {
-            bad_list[bad_size] = client->fd;
+        if (sendMessage(cursor->fd, buf) == -1) {
+            bad_list[bad_size] = cursor->fd;
             bad_size++;
         }
     }
@@ -125,44 +131,43 @@ int *sendToAllClients(struct clients *client, char *buf) {
         bad_list[bad_size] = -1;
     } else
         bad_list = NULL;
-    pthread_mutex_unlock(&list_mutex);
+    pthread_mutex_unlock(&recv_mutex);
     return bad_list;
 }
 
 void addThreadToList(int client_fd, char *address) {
     struct clients *client;
-    pthread_mutex_lock(&list_mutex);
+    pthread_mutex_lock(&recv_mutex);
 
     client = (struct clients *)malloc(sizeof(struct clients));
     client->fd = client_fd;
     client->address = address;
-    if (clients_list == NULL)
+    if (recv_list == NULL)
     {
-        clients_list = client;
-        clients_list->next=NULL;
+        recv_list = client;
+        recv_list->next=NULL;
     }
     else
     {
-        client->next = clients_list;
-        clients_list = client;
+        client->next = recv_list;
+        recv_list = client;
     }
-
-    pthread_mutex_unlock(&list_mutex);
+    pthread_mutex_unlock(&recv_mutex);
 }
 
 void removeThreadFromList(int client_fd) {
     struct clients *cursor, *prev;
-    pthread_mutex_lock(&list_mutex);
+    pthread_mutex_lock(&recv_mutex);
     
     prev = NULL;
-    cursor = clients_list;
+    cursor = recv_list;
     while(cursor != NULL)
     {
         if(cursor->fd == client_fd)
         {
-            if(cursor == clients_list)
+            if(cursor == recv_list)
             {
-                clients_list = cursor->next;
+                recv_list = cursor->next;
                 free(cursor);
             }
             else
@@ -178,50 +183,182 @@ void removeThreadFromList(int client_fd) {
             cursor = cursor->next;
         }
     }
-    pthread_mutex_unlock(&list_mutex);
+    pthread_mutex_unlock(&recv_mutex);
 }
 
-void *entry_func(void *args) {
+void addToMessageQueue(char *message){
+    struct message_queue *queue;
+    pthread_mutex_lock(&queue_mutex);
+    
+    queue = (struct message_queue *)malloc(sizeof(struct message_queue));
+    queue->message = message;
+    if (MessageQueue == NULL)
+    {
+        MessageQueue = queue;
+        MessageQueue->next=NULL;
+    }
+    else
+    {
+        queue->next = MessageQueue;
+        MessageQueue = queue;
+    }
+    queue_size++;
+    pthread_cond_signal(&cond);  
+    pthread_mutex_unlock(&queue_mutex);
+}
+
+char *readFromMessageQueue(){
+    struct message_queue *temp;
+    char *message;
+    
+    message = "Failure";
+    pthread_mutex_lock(&queue_mutex);
+    if (MessageQueue != NULL){
+        message = MessageQueue->message;
+        temp = MessageQueue;
+        MessageQueue = MessageQueue->next;
+        free(temp);
+    }
+    queue_size--;
+    pthread_mutex_unlock(&queue_mutex);
+    return message;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void *client_receive_func(void *args) {
     int i, client_fd, *bad_list=NULL;
     char *buf=NULL;
-
-    struct clients *client = (struct clients*) args;
+    struct clients *client;
+    
+    client = (struct clients*) args;
     client_fd = client->fd;
-
     while(1) {
-        buf = recvMessage(client_fd);
-        if (strcmp(buf, "/quit") == 0)
-            break;
-        else if (strcmp(buf, "abort") == 0){
-            removeThreadFromList(client_fd);
-            pthread_exit(NULL);
+        /* wait for signal from cond */
+        pthread_mutex_lock(&queue_mutex);
+        while(queue_size == 0)	{
+	        pthread_cond_wait(&cond, &queue_mutex); 
         }
-        bad_list = sendToAllClients(client, ++buf);
-        if(bad_list != NULL)
-            for(i=0; i < list_size; i++) {
-                if(bad_list[i] == -1)
-                    break;
-                fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
-                removeThreadFromList(bad_list[i]);
+        pthread_mutex_unlock(&queue_mutex);
+        buf = readFromMessageQueue();
+        printf("got message\n");
+        fflush(stdout);
+        pthread_mutex_lock(&queue_mutex);
+        if (strcmp("Failure", buf) != 0){
+            printf("got message\n");
+            fflush(stdout);
+            bad_list = sendToAllClients(buf);
+            if(bad_list != NULL)
+                for(i=0; i < recv_size; i++) {
+                    if(bad_list[i] == -1)
+                        break;
+                    fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
+                    removeThreadFromList(bad_list[i]);
+            }
         }
+        pthread_mutex_unlock(&queue_mutex);
     }
-    sendMessage(client_fd, "Goodbye Server!!");
-
     removeThreadFromList(client_fd);
     close(client_fd);
     pthread_exit(NULL);
 }
 
-int run_server(int server_fd) {
-    /* Pointer to the location of all client thread */
+void *client_send_func(void *args) {
+    int client_fd;
+    char *message, *buf=NULL;
+    struct clients *client;
+
+    client = (struct clients*) args;
+    client_fd = client->fd;
+    
+    while(1) {
+        buf = recvMessage(client_fd);
+        if (strcmp(buf, "/quit") == 0)
+            break;
+        else if (strcmp(buf, "abort") == 0){
+            pthread_exit(NULL);
+        }
+        
+        message = malloc(MAXDATASIZE*sizeof(char));
+        snprintf(message, MAXDATASIZE, "%s, %d: %s", client->address, atoi(SENDPORT), 
+            ++buf);
+
+        addToMessageQueue(message);    
+        /* wake up waiting thread with condition variable */
+    }
+    close(client_fd);
+    pthread_exit(NULL);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void *run_server_get_receives(void *args) {
     pthread_t client_thread;
     struct clients *client;
+    /* Pointer to the location of all client thread */
+    int server_fd, *ptr;
+    ptr = (int*) args;
+    server_fd = *ptr;
 
     /* allocate space for the client_thread */
     client_thread = (pthread_t) malloc(sizeof(pthread_t));
     if (client_thread == 0){
         perror("create thread");
-        return -1;
+        pthread_exit(NULL);
     }
 
     while(1) {  /* main accept() loop */
@@ -230,46 +367,100 @@ int run_server(int server_fd) {
             continue;
         }
 
-	/* Create and start thread */
-        if (pthread_create(&client_thread, NULL, entry_func, client) == -1){
+	    /* Create and start thread */
+        if (pthread_create(&client_thread, NULL, client_receive_func, client) == -1){
             perror("start pthread");
-            return -1;
+            pthread_exit(NULL);
         }
         addThreadToList(client->fd, client->address);
     }
+    pthread_exit(NULL);
 }
 
-int main(void) {
-    int rv, yes = 1, server_fd = -1;  /* listen for connection on server_fd, communicates on client_fd */
+void *run_server_get_sends(void *args) {
+    pthread_t client_thread;
+    struct clients *client;
+    /* Pointer to the location of all client thread */
+    int server_fd, *ptr;
+    ptr = (int*) args;
+    server_fd = *ptr;
+
+    /* allocate space for the client_thread */
+    client_thread = (pthread_t) malloc(sizeof(pthread_t));
+    if (client_thread == 0){
+        perror("create thread");
+        pthread_exit(NULL);
+    }
+
+    while(1) {  /* main accept() loop */
+        client = get_connections(server_fd);
+        
+        if (client->fd == -1) {
+            continue;
+        }
+
+    	/* Create and start thread */
+        if (pthread_create(&client_thread, NULL, client_send_func, client) == -1){
+            perror("start pthread");
+            pthread_exit(NULL);
+        }
+    }
+    pthread_exit(NULL);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+int *setup(const char *port){
     struct addrinfo hints, *servinfo, *p;
     struct sigaction sa;
-    struct ifaddrs *addrs, *tmp;
-    struct sockaddr_in *pAddr = NULL;
     
+    /* listen for connection on server_fd, communicates on client_fd */
+    int rv, yes = 1, *server_fd = NULL;  
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; /* use my IP */
 
-    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+    if ((rv = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        return 1;
+        exit(1);
     }
 
+    server_fd = malloc(sizeof(int));
     /* loop through all the results and bind to the first we can */
     for (p = servinfo; p != NULL; p = p->ai_next) {
-        if ((server_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+        if ((*server_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("server: socket");
             continue;
         }
 
-        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+        if (setsockopt(*server_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
             perror("setsockopt");
             exit(1);
         }
 
-        if (bind(server_fd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(server_fd);
+        if (bind(*server_fd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(*server_fd);
             perror("server: bind");
             continue;
         }
@@ -284,7 +475,7 @@ int main(void) {
         exit(1);
     }
 
-    if (listen(server_fd, BACKLOG) == -1) {
+    if (listen(*server_fd, BACKLOG) == -1) {
         perror("listen");
         exit(1);
     }
@@ -296,6 +487,19 @@ int main(void) {
         perror("sigaction");
         exit(1);
     }
+    return server_fd;
+}
+
+int main(void) {
+   
+    struct ifaddrs *addrs, *tmp;
+    struct sockaddr_in *pAddr = NULL;    
+    
+    int *client_send_fd = NULL, *client_receive_fd = NULL;
+    pthread_t client_send_thread, client_recv_thread;
+
+    client_send_fd = setup(SENDPORT);    
+    client_receive_fd = setup(RECEIVEPORT);    
 
     getifaddrs(&addrs);
     tmp = addrs;
@@ -311,24 +515,66 @@ int main(void) {
     }
     freeifaddrs(addrs);
     printf("]\n");
-    
+
     /* Server prints out all available addresses, you can access the server with: 
-    ./Client ip_address
+    ./Send_Client ip_address or ./Recv_Client ip_address
     */
-    
-    if (0 != pthread_mutex_init(&list_mutex, NULL)) {
-        perror("init list_mutex");
+
+	if (0 != pthread_cond_init(&cond, NULL)){
+        perror("init cond");
         exit(1);
     }
+    if (0 != pthread_mutex_init(&recv_mutex, NULL)) {
+        perror("init recv_mutex");
+        exit(1);
+    }
+    
 
-    clients_list = NULL;
+    recv_list = NULL;
+    MessageQueue = NULL;
 
-    printf("Port: %s\nserver: waiting for connections...\n", PORT);
+    printf("Port: %s\nserver: waiting for clientSenders...\n", SENDPORT);
+    printf("Port: %s\nserver: waiting for clientRecievers...\n", RECEIVEPORT);
     fflush(stdout);
-    run_server(server_fd);
+    
+    client_send_thread = (pthread_t) malloc(sizeof(pthread_t));
+    if (client_send_thread == 0){
+        perror("create thread");
+        return -1;
+    }
+    client_recv_thread = (pthread_t) malloc(sizeof(pthread_t));
+    if (client_recv_thread == 0){
+        perror("create thread");
+        return -1;
+    }
 
-    if (pthread_mutex_destroy(&list_mutex)) {
-        perror("destroy list_mutex");
+    /* Create and start client senders thread */
+    if (pthread_create(&client_send_thread, NULL, run_server_get_sends, client_send_fd) == -1){
+        perror("start pthread");
+        return -1;
+    }
+
+    /* Create and start client receivers thread */
+    if (pthread_create(&client_recv_thread, NULL, run_server_get_receives, client_receive_fd) == -1){
+        perror("start pthread");
+        return -1;
+    }
+    
+    if (pthread_join(client_send_thread, NULL) == -1){
+        perror("join pthread");
+        return -1;
+    }
+    if (pthread_join(client_recv_thread, NULL) == -1){
+        perror("join pthread");
+        return -1;
+    }
+
+    if (pthread_cond_destroy(&cond)) {
+        perror("destroy cond");
+        exit(1);
+    }
+    if (pthread_mutex_destroy(&recv_mutex)) {
+        perror("destroy recv_mutex");
         exit(1);
     }
 

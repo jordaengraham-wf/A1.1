@@ -9,25 +9,32 @@
 CC := gcc
 CCFLAGS := -Wall -Wextra -pedantic -pthread -g
 
-all: clean Server Client
+all: clean Server Recv_Client Send_Client
 
 clean:
 	@rm *.o* &> /dev/null || true
 	@rm *~ &> /dev/null || true
-	@rm Client &> /dev/null || true
+	@rm *Client &> /dev/null || true
 	@rm Server &> /dev/null || true
 
 run_server: Server
 	@./Server
 
-run_client: Client
-	@./Client
+run_recv_client: Recv_Client
+	@./Recv_Client
+
+run_send_client: Send_Client
+	@./Send_Client
 
 Server: server.c server.h
 	$(CC) $(CCFLAGS) -o Server server.c
 
+Client: Recv_Client Send_Client
 
-Client: client.c server.h
-	$(CC) $(CCFLAGS) -o Client client.c
+Recv_Client: recv_client.c server.h
+	$(CC) $(CCFLAGS) -o Recv_Client recv_client.c
+
+Send_Client: send_client.c server.h
+	$(CC) $(CCFLAGS) -o Send_Client send_client.c
 
 
