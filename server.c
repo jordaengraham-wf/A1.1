@@ -106,33 +106,13 @@ char *recvMessage(int client_fd){
 }
 
 int sendMessage(int client_fd, char *message) {
+    printf("send to client: %d\n", client_fd);
     if (send(client_fd, message, strlen(message), 0) == -1) {
-        perror("send");
+        fprintf(stdout, "Error: sending to %d\n", client_fd);
         return -1;
     }
+    printf("finished sending to client: %d\n", client_fd);
     return 0;
-}
-
-int *sendToAllClients(char *buf) {
-    struct clients *cursor;
-    int *bad_list, bad_size;
-    pthread_mutex_lock(&recv_mutex);
-
-    bad_size = 0;
-    bad_list = malloc(recv_size*sizeof(int));
-    cursor = recv_list;
-    for(; cursor != NULL; cursor = cursor->next) {
-        if (sendMessage(cursor->fd, buf) == -1) {
-            bad_list[bad_size] = cursor->fd;
-            bad_size++;
-        }
-    }
-    if (bad_size > 0) {
-        bad_list[bad_size] = -1;
-    } else
-        bad_list = NULL;
-    pthread_mutex_unlock(&recv_mutex);
-    return bad_list;
 }
 
 void addThreadToList(int client_fd, char *address) {
@@ -161,6 +141,7 @@ void removeThreadFromList(int client_fd) {
     
     prev = NULL;
     cursor = recv_list;
+    printf("Remove FD: %d\n", client_fd);
     while(cursor != NULL)
     {
         if(cursor->fd == client_fd)
@@ -183,6 +164,11 @@ void removeThreadFromList(int client_fd) {
             cursor = cursor->next;
         }
     }
+    close(client_fd);
+    printf("Remove: \n");
+    for(cursor = recv_list; cursor != NULL; cursor=cursor->next){
+        printf("FD: %d\n", cursor->fd);
+    }
     pthread_mutex_unlock(&recv_mutex);
 }
 
@@ -203,7 +189,7 @@ void addToMessageQueue(char *message){
         MessageQueue = queue;
     }
     queue_size++;
-    pthread_cond_signal(&cond);  
+    pthread_cond_signal(&cond);
     pthread_mutex_unlock(&queue_mutex);
 }
 
@@ -224,6 +210,36 @@ char *readFromMessageQueue(){
     return message;
 }
 
+
+void sendToAllClients(char *buf) {
+    struct clients *cursor;
+    int i, *bad_list, bad_size;
+    pthread_mutex_lock(&recv_mutex);
+
+    bad_size = 0;
+    bad_list = malloc(recv_size * sizeof(int));
+    cursor = recv_list;
+    for (; cursor != NULL; cursor = cursor->next) {
+        if (sendMessage(cursor->fd, buf) == -1) {
+            printf("bad client_fd: %d\n", cursor->fd);
+            bad_list[bad_size] = cursor->fd;
+            bad_size++;
+        }
+    }
+    pthread_mutex_unlock(&recv_mutex);
+    if (bad_size > 0) {
+        if (bad_list != NULL) {
+            printf("badlist not null\n");
+            for (i = 0; i < bad_size; i++) {
+                fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
+                if (bad_list[i] == -1)
+                    break;
+                fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
+                removeThreadFromList(bad_list[i]);
+            }
+        }
+    }
+}
 
 
 
@@ -264,12 +280,8 @@ char *readFromMessageQueue(){
 
 
 void *client_receive_func(void *args) {
-    int i, client_fd, *bad_list=NULL;
     char *buf=NULL;
-    struct clients *client;
-    
-    client = (struct clients*) args;
-    client_fd = client->fd;
+
     while(1) {
         /* wait for signal from cond */
         pthread_mutex_lock(&queue_mutex);
@@ -278,25 +290,12 @@ void *client_receive_func(void *args) {
         }
         pthread_mutex_unlock(&queue_mutex);
         buf = readFromMessageQueue();
-        printf("got message\n");
-        fflush(stdout);
         pthread_mutex_lock(&queue_mutex);
         if (strcmp("Failure", buf) != 0){
-            printf("got message\n");
-            fflush(stdout);
-            bad_list = sendToAllClients(buf);
-            if(bad_list != NULL)
-                for(i=0; i < recv_size; i++) {
-                    if(bad_list[i] == -1)
-                        break;
-                    fprintf(stderr, "Send error in client: %d\n", bad_list[i]);
-                    removeThreadFromList(bad_list[i]);
-            }
+            sendToAllClients(buf);
         }
         pthread_mutex_unlock(&queue_mutex);
     }
-    removeThreadFromList(client_fd);
-    close(client_fd);
     pthread_exit(NULL);
 }
 
@@ -361,17 +360,18 @@ void *run_server_get_receives(void *args) {
         pthread_exit(NULL);
     }
 
+    /* Create and start thread */
+    if (pthread_create(&client_thread, NULL, client_receive_func, NULL) == -1){
+        perror("start pthread");
+        pthread_exit(NULL);
+    }
+
     while(1) {  /* main accept() loop */
         client = get_connections(server_fd);
         if (client->fd == -1) {
             continue;
         }
 
-	    /* Create and start thread */
-        if (pthread_create(&client_thread, NULL, client_receive_func, client) == -1){
-            perror("start pthread");
-            pthread_exit(NULL);
-        }
         addThreadToList(client->fd, client->address);
     }
     pthread_exit(NULL);
@@ -532,6 +532,7 @@ int main(void) {
 
     recv_list = NULL;
     MessageQueue = NULL;
+    signal(SIGPIPE, SIG_IGN);
 
     printf("Port: %s\nserver: waiting for clientSenders...\n", SENDPORT);
     printf("Port: %s\nserver: waiting for clientRecievers...\n", RECEIVEPORT);
